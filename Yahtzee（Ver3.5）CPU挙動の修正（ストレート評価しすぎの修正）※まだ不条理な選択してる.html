@@ -1,0 +1,1158 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Yahtzee</title>
+<style>
+body {
+	margin:0;
+	font-family:Yu Gothic,Meiryo,sans-serif;
+	background:radial-gradient(circle,#1f7a43,#0b3d22);
+	color:#fff
+}
+
+button {
+	padding:10px 16px;
+	border-radius:8px;
+	border:none;
+	cursor:pointer
+}
+
+#rollBtn{
+	margin-top:24px;
+	min-width:150px;
+}
+
+
+.screen {
+	display:none;
+	padding:20px
+}
+
+.active {
+	display:block
+}
+
+.menu{
+	text-align:center;
+	padding-top:80px
+}
+
+.dice-wrap {
+	display:flex;
+	gap:12px;
+	flex-wrap:wrap
+}
+
+.dice {
+	width:80px;
+	height:80px;
+	background:#fff;
+	border-radius:14px;
+	position:relative;
+	box-shadow:0 4px 10px rgba(0,0,0,.4)
+}
+
+.held {
+	outline:5px solid gold
+}
+
+.pip {
+	width:12px;
+	height:12px;
+	border-radius:50%;
+	background:#111;
+	position:absolute
+}
+
+.tl {
+	top:12px;
+	left:12px
+}
+
+.tr {
+	top:12px;
+	right:12px
+}
+
+.ml {
+	top:34px;
+	left:12px
+}
+
+.mr {
+	top:34px;
+	right:12px
+}
+
+.center {
+	top:34px;
+	left:34px
+}
+
+.bl {
+	bottom:12px;
+	left:12px
+}
+
+.br {
+	bottom:12px;
+	right:12px
+}
+
+@keyframes roll {
+	0%{
+		transform:rotate(0)
+	}
+	100%{
+		transform:rotate(720deg)
+	}
+}
+
+.rolling {
+	animation:roll .9s
+}
+.layout {
+	display:grid;
+	grid-template-columns:1fr 700px;
+	gap:20px
+}
+
+.score div {
+	padding:6px;
+	border-bottom:1px solid #999;
+	cursor:pointer
+}
+
+.goodscore{
+	font-weight:bold;
+	color:#ffd166;
+}
+
+.usedScore{
+	color:#999;
+	background:rgba(255,255,255,.05);
+}
+
+.activeSheet{
+	border:3px solid gold;
+	box-shadow:0 0 15px rgba(255,215,0,.6);
+}
+
+
+#winner{
+	font-size:32px;
+	color:gold;
+	text-align:center;
+}
+
+#finalResult{
+	font-size:22px;
+	text-align:center;
+	line-height:1.8;
+}
+
+#scoreArea{
+	display:flex;
+	gap:20px;
+	flex-wrap:wrap;
+}
+
+#gameOver{
+	text-align:center;
+}
+
+#gameOver button{
+	margin:10px;
+	min-width:180px;
+	font-size:16px;
+}
+
+.scoreSheet{
+	flex:1;
+	min-width:260px;
+	background:rgba(255,255,255,.08);
+	border-radius:10px;
+	padding:10px;
+}
+
+.scoreTitle{
+	text-align:center;
+	font-size:20px;
+	font-weight:bold;
+	margin-bottom:10px;
+}
+
+.totalBlock{
+	text-align:center;
+	font-weight:bold;
+	margin-bottom:10px;
+}
+
+.avail {
+	background:#2d6a4f
+}
+
+@media(max-width:800px) {
+	.layout {
+		grid-template-columns:1fr
+	}
+}
+
+#finalScoreSheet{
+	margin-top:20px;
+	display:flex;
+	gap:20px;
+	justify-content:center;
+	flex-wrap:wrap;
+}
+
+.finalSheet{
+	min-width:260px;
+	padding:10px;
+	background:rgba(255,255,255,.08);
+	border-radius:10px;
+	text-align:left;
+}
+
+</style>
+</head>
+<body>
+
+<div id="menu" class="screen active menu">
+<h1>YAHTZEE</h1>
+<button onclick="startGame(1)">1 PLAYER</button>
+<button onclick="startGame(2)">2 PLAYERS</button>
+<button onclick="startGame(3)">VS CPU</button>
+</div>
+
+<div id="game" class="screen">
+<h2 id="turn"></h2>
+<div class="layout">
+
+<div>
+<div class="dice-wrap" id="dice">
+</div>
+
+<button id="rollBtn" onclick="rollDice()">ROLL</button>
+</div>
+
+<div id="scoreArea"></div>
+
+</div>
+</div>
+<script>
+const pat={
+	1:['center'],2:['tl','br'],3:['tl','center','br'],4:['tl','tr','bl','br'],5:['tl','tr','center','bl','br'],6:['tl','ml','bl','tr','mr','br']
+};
+const cats=['Ones','Twos','Threes','Fours','Fives','Sixes','3Kind','4Kind','FullHouse','SmallStraight','LargeStraight','Yahtzee','Chance'];
+
+let mode=1,current=0,rolls=3,dice=[1,1,1,1,1],held=[0,0,0,0,0],players=[];
+let cpuThinking = false;
+
+/* CPUの重みづけ */
+const cpuWeights = {
+	Yahtzee:100,
+	LargeStraight:80,
+	SmallStraight:60,
+	FullHouse:60,
+	"4Kind":50,
+	"3Kind":30,
+
+	Sixes:20,
+	Fives:15,
+	Fours:10,
+
+	Chance:0
+};
+
+/* ゲームの開始 */
+function startGame(m){
+	current = 0;
+	rolls = 3;
+	cpuThinking = false;
+	dice = [1,1,1,1,1];
+	held = [0,0,0,0,0];
+	mode = m;
+	players =
+		m === 1
+		? [{yahtzeeBonus:0}]
+		: [
+			{yahtzeeBonus:0},
+			{yahtzeeBonus:0}
+		];
+	document.getElementById('menu')
+		.classList.remove('active');
+	document.getElementById('game')
+		.classList.add('active');
+	newTurn();
+}
+
+/* メニューに戻る */
+function backToMenu(){
+	document.getElementById('gameOver')
+		.classList.remove('active');
+	document.getElementById('game')
+		.classList.remove('active');
+	document.getElementById('menu')
+		.classList.add('active');
+	
+	current = 0;
+	rolls = 3;
+	cpuThinking = false;
+	
+	dice = [1,1,1,1,1];
+	held = [0,0,0,0,0];
+
+	players = [];
+	
+	document.getElementById('winner')
+		.textContent = '';
+	document.getElementById('finalResult')
+		.innerHTML = '';
+	document.getElementById('finalScoreSheet')
+		.innerHTML = '';
+}
+
+/* ダイスの描写 */
+function renderDice(){
+	let d=document.getElementById('dice');
+	d.innerHTML='';
+
+	dice.forEach((v,i)=>{
+		let el=document.createElement('div');
+		el.className='dice'+(held[i]?' held':'');
+		el.onclick=()=>{
+			if(cpuThinking) return;
+			if(rolls<3){
+				held[i]=!held[i];
+				renderDice();
+			}
+		};
+
+	pat[v].forEach(p=>{
+		let pp=document.createElement('div');
+		pp.className='pip '+p;
+		el.appendChild(pp)
+		});
+	d.appendChild(el)
+	})
+}
+
+/* ダイスを振る */
+function rollDice(){
+	if(cpuThinking && current===0){
+		return;
+	}
+	if(rolls<=0) return;
+	let area=document.querySelectorAll('.dice');
+	area.forEach((a,i)=>{
+		if(!held[i]){
+			a.classList.add('rolling');
+		}
+	});
+	setTimeout(()=>{
+		for(let i=0;i<5;i++){
+			if(!held[i]){
+				dice[i]=1+Math.floor(Math.random()*6);
+			}
+		}
+		area.forEach(a=>a.classList.remove('rolling'));
+		rolls--;
+		document.getElementById('rollBtn').textContent =
+			`ROLL (${rolls} LEFT)`;
+		renderDice();
+		renderScore();
+	},900);
+}
+
+// 合計
+function sum(){
+	return dice.reduce((a,b)=>a+b,0)
+}
+
+/* 役のスコア */
+function score(c){
+	let cnt=[0,0,0,0,0,0,0];
+	dice.forEach(v=>cnt[v]++);
+	switch(c){
+		case'Ones':return cnt[1]*1;
+		case'Twos':return cnt[2]*2;
+		case'Threes':return cnt[3]*3;
+		case'Fours':return cnt[4]*4;
+		case'Fives':return cnt[5]*5;
+		case'Sixes':return cnt[6]*6;
+		case'3Kind':return Math.max(...cnt)>=3?sum():0;
+		case'4Kind':return Math.max(...cnt)>=4?sum():0;
+		case'FullHouse':return cnt.includes(3)&&cnt.includes(2)?25:0;
+		case'SmallStraight':return [1,2,3,4].every(n=>dice.includes(n))||[2,3,4,5].every(n=>dice.includes(n))||[3,4,5,6].every(n=>dice.includes(n))?30:0;
+		case'LargeStraight':return [1,2,3,4,5].every(n=>dice.includes(n))||[2,3,4,5,6].every(n=>dice.includes(n))?40:0;
+		case'Yahtzee':return Math.max(...cnt)==5?50:0;
+		case'Chance':return sum();
+	}
+}
+
+function scoreForDice(diceArr, cat){
+	let oldDice = [...dice];
+	dice = [...diceArr];
+	let result = score(cat);
+	dice = oldDice;
+	return result;
+}
+
+function isYahtzee(){
+	let cnt=[0,0,0,0,0,0,0];
+	dice.forEach(v=>cnt[v]++);
+	return Math.max(...cnt)===5;
+}
+
+function renderScore(){
+	const area =
+		document.getElementById('scoreArea');
+	area.innerHTML='';
+	players.forEach((p,index)=>{
+		let sheet =
+			document.createElement('div');
+		sheet.className='scoreSheet';
+		if(index === current){
+			sheet.classList.add('activeSheet');
+		}
+		let title =
+			document.createElement('div');
+		title.className='scoreTitle';
+		title.textContent =
+		index===0
+		? 'PLAYER 1'
+		: (mode===3 ? 'CPU' : 'PLAYER 2');
+	sheet.appendChild(title);
+	let totalDiv =
+		document.createElement('div');
+	totalDiv.className='totalBlock';
+	let baseScore =
+		cats.reduce(
+			(a,c)=>a + (p[c] || 0),
+			0
+		);
+	totalDiv.innerHTML =
+		'BASE SCORE : ' + baseScore +
+		'<br>UPPER BONUS : ' + upperBonus(p) +
+		'<br>YAHTZEE BONUS : ' + (p.yahtzeeBonus || 0) +
+		'<br>GRAND TOTAL : ' + total(p);
+	sheet.appendChild(totalDiv);
+	cats.forEach(c=>{
+		let d =
+			document.createElement('div');
+		if(p[c] != null){
+			d.textContent =
+				c + ' : ' + p[c];
+			d.classList.add('usedScore');
+		}else{
+			if(players.length === 1 || index === current){
+				let pts = score(c);
+				d.textContent =
+					c + ' → ' + pts;
+				d.className='avail';
+				if(pts > 0){
+					d.classList.add('goodscore');
+				}
+				d.onclick = ()=>{
+					if(pts === 0){
+						if(
+							!confirm(
+								"Score is 0. Record anyway?"
+							)
+						){
+							return;
+						}
+					}
+					saveCat(c);
+				};
+			}else{
+				d.textContent =
+					c + ' : -';
+			}
+		}
+		sheet.appendChild(d);
+		});
+	area.appendChild(sheet);
+	});
+}
+
+/* ヤッツィーボーナス */
+function saveCat(c){
+	const p = players[current];
+	if(
+		c !== 'Yahtzee' &&
+		p.Yahtzee === 50 &&
+		isYahtzee()
+	){
+		p.yahtzeeBonus += 100;
+	}
+	p[c] = score(c);
+	if(endGame()) return;
+	current=(current+1)%players.length;
+	newTurn();
+}
+
+/* 目のボーナス計算 */
+function upperTotal(p){
+	return (
+		(p.Ones || 0) +
+		(p.Twos || 0) +
+		(p.Threes || 0) +
+		(p.Fours || 0) +
+		(p.Fives || 0) +
+		(p.Sixes || 0)
+	);
+}
+
+/* 目のボーナス */
+function upperBonus(p){
+	return upperTotal(p) >= 63 ? 35 : 0;
+}
+
+/* 合計算定 */
+function total(p){
+	let base =
+		cats.reduce(
+			(a,c)=>a+(p[c]||0),
+			0
+		);
+	return base
+		+ upperBonus(p)
+		+ (p.yahtzeeBonus || 0);
+}
+
+function complete(p){
+	return cats.every(c=>p[c]!=null)
+}
+
+function buildFinalSheet(p,name){
+	let html =
+		'<div class="finalSheet">';
+	html +=
+		'<h3>' + name + '</h3>';
+	cats.forEach(c=>{
+		html +=
+			c +
+			' : ' +
+			(p[c] || 0) +
+			'<br>';
+	});
+	html +=
+		'<hr>';
+	html +=
+		'UPPER BONUS : ' +
+		upperBonus(p) +
+		'<br>';
+
+    html +=
+        'YAHTZEE BONUS : ' +
+        (p.yahtzeeBonus || 0) +
+        '<br>';
+
+    html +=
+        '<b>TOTAL : ' +
+        total(p) +
+        '</b>';
+
+    html += '</div>';
+
+    return html;
+
+}
+
+/* ゲーム終了 */
+function endGame(){
+
+    if(players.every(complete)){
+
+        document.getElementById('game')
+            .classList.remove('active');
+
+        document.getElementById('gameOver')
+            .classList.add('active');
+
+        /* スコアシート生成 */
+
+        let html = '';
+
+        html += buildFinalSheet(
+            players[0],
+            'PLAYER 1'
+        );
+
+        if(players.length > 1){
+
+            html += buildFinalSheet(
+                players[1],
+                mode === 3
+                    ? 'CPU'
+                    : 'PLAYER 2'
+            );
+
+        }
+
+        document.getElementById(
+            'finalScoreSheet'
+        ).innerHTML = html;
+
+        /* 1人プレイ */
+
+        if(players.length === 1){
+
+            document.getElementById('winner')
+                .textContent = '';
+
+            document.getElementById('finalResult')
+                .innerHTML =
+                    'FINAL SCORE<br>' +
+                    total(players[0]);
+
+        }
+
+        /* 2人プレイ・CPU戦 */
+
+        else{
+
+            let p1 = total(players[0]);
+            let p2 = total(players[1]);
+
+            let winnerText;
+
+            if(p1 > p2){
+
+                winnerText = 'PLAYER 1 WIN!';
+
+            }
+            else if(p2 > p1){
+
+                winnerText =
+                    mode === 3
+                    ? 'CPU WIN!'
+                    : 'PLAYER 2 WIN!';
+
+            }
+            else{
+
+                winnerText = 'DRAW!';
+
+            }
+
+            document.getElementById('winner')
+                .textContent = winnerText;
+
+            document.getElementById('finalResult')
+                .innerHTML =
+                    'PLAYER 1 : ' + p1 +
+                    '<br>' +
+                    (mode === 3
+                        ? 'CPU'
+                        : 'PLAYER 2') +
+                    ' : ' + p2;
+
+        }
+
+        return true;
+
+    }
+
+    return false;
+
+}
+
+/* 次のターン */
+function newTurn(){
+	rolls=3;
+	held=[0,0,0,0,0];
+
+	document.getElementById('rollBtn').textContent =
+		`ROLL (${rolls} LEFT)`;
+
+	document.getElementById('turn').textContent =
+		(current===0
+			?'PLAYER 1'
+			:(mode===3?'CPU':'PLAYER 2'))
+
+		+' TURN';
+	renderDice();
+	renderScore();
+	if(mode===3){
+		if(current===0){
+			setTimeout(rollDice,200);
+
+        }else{
+
+            setTimeout(cpuTurn,500);
+
+        }
+
+    }else{
+
+        setTimeout(rollDice,200);
+
+    }
+
+}
+
+
+function monteCarlo(mask,trials=500){
+
+    let total=0;
+
+    for(let t=0;t<trials;t++){
+
+        let sim=[...dice];
+
+        for(let i=0;i<5;i++){
+
+            if(!(mask&(1<<i))){
+
+                sim[i]=
+                    1+Math.floor(Math.random()*6);
+
+            }
+
+        }
+
+        total+=evaluateDice(sim);
+
+    }
+
+    return total/trials;
+
+}
+
+function findBestHold(){
+	let bestMask=0;
+	let bestValue=-1;
+	for(let mask=0;mask<32;mask++){
+		let value=
+			// モンテカルロ試行数（500～2000が目安。5000だと思考時間長くなる）
+			monteCarlo(mask,1000);
+		if(value>bestValue){
+			bestValue=value;
+			bestMask=mask;
+		}
+	}
+	return bestMask;
+}
+
+function applyHoldMask(mask){
+	held=[0,0,0,0,0];
+	for(let i=0;i<5;i++){
+		if(mask&(1<<i)){
+			held[i]=1;
+		}
+	}
+	renderDice();
+}
+
+
+function evaluateDice(diceArr){
+	let p = players[1];
+	let best = -9999;
+	cats.forEach(cat=>{
+		if(p[cat] != null) return;
+		let scoreValue =
+			scoreForDice(diceArr,cat);
+		let value = scoreValue;
+
+/* 同じ目をたくさん持つ状態を高評価 */
+		let cnt=[0,0,0,0,0,0,0];
+		diceArr.forEach(v=>cnt[v]++);
+		let maxSame =
+			Math.max(...cnt);
+
+/* ストレート評価 */
+let unique =
+    [...new Set(diceArr)].sort((a,b)=>a-b);
+
+const threeChains = [
+    [1,2,3],
+    [2,3,4],
+    [3,4,5],
+    [4,5,6]
+];
+
+const fourChains = [
+    [1,2,3,4],
+    [2,3,4,5],
+    [3,4,5,6]
+];
+
+/* SmallStraightをまだ取っていない場合のみ */
+if(
+    p.SmallStraight == null &&
+    cat === 'SmallStraight'
+){
+    threeChains.forEach(chain=>{
+        if(chain.every(n=>unique.includes(n))){
+            value += 25;
+        }
+    });
+}
+
+/* LargeStraightをまだ取っていない場合のみ */
+if(
+    p.LargeStraight == null &&
+    cat === 'LargeStraight'
+){
+    fourChains.forEach(chain=>{
+        if(chain.every(n=>unique.includes(n))){
+            value += 80;
+        }
+    });
+
+    if(
+        [1,2,3,4,5].every(n=>unique.includes(n))
+        ||
+        [2,3,4,5,6].every(n=>unique.includes(n))
+    ){
+        value += 150;
+    }
+}
+
+/* ペア・3カード・4カードを強めに評価 */
+		value += maxSame * 40;
+
+/* 高い数字を揃える価値 */
+		let bestFace = 0;
+		for(let i=1;i<=6;i++){
+			bestFace =
+				Math.max(
+					bestFace,
+					cnt[i] * i
+				);
+		}
+		value += bestFace;
+
+/* 3個以上揃ったらかなり評価 */
+		if(maxSame >= 3){
+			value += 80;
+		}
+		if(maxSame >= 4){
+			value += 150;
+		}
+
+/* Yahtzeeボーナス期待値 */
+		if(p.Yahtzee === 50){
+			for(let i=1;i<=6;i++){
+				if(cnt[i] >= 2){
+					value += cnt[i] * cnt[i] * 30;
+				}
+			}
+		}
+		let upperNow =
+			upperTotal(p);
+		let remain =
+			Math.max(
+				0,
+				63 - upperNow
+			);
+
+/* 上段カテゴリーを優遇 */
+		if(
+			cat === 'Ones' ||
+			cat === 'Twos' ||
+			cat === 'Threes' ||
+			cat === 'Fours' ||
+			cat === 'Fives' ||
+			cat === 'Sixes'
+		){
+			value += scoreValue * 2;
+/* ボーナスに近いほど上段を優先 */
+            if(remain <= 20){
+                value += scoreValue;
+            }
+            if(remain <= 15){
+                value += scoreValue * 2;
+            }
+            if(remain <= 10){
+                value += 20;
+            }
+            if(remain <= 5){
+                value += 40;
+            }
+
+            /* この一手で63点到達なら超優遇 */
+            if(scoreValue >= remain){
+                value += 50;
+            }
+        }
+        /* 役ボーナス */
+        switch(cat){
+            case 'Yahtzee':
+                if(scoreValue === 50){
+                    value += 100;
+                }
+                break;
+case 'LargeStraight':
+    if(scoreValue === 40){
+        value += 70;
+    }
+    break;
+
+case 'SmallStraight':
+    if(scoreValue === 30){
+        value += 40;
+    }
+    break;
+            case 'FullHouse':
+                value += 40;
+                break;
+            case '4Kind':
+                value += 30;
+                break;
+            case '3Kind':
+                value += 20;
+                break;
+        }
+        if(value > best){
+            best = value;
+        }
+    });
+    return best;
+}
+
+function evaluateCategory(cat){
+	let p = players[1];
+	if(p[cat] != null){
+		return -9999;
+	}
+	let actualScore =
+		scoreForDice(dice,cat);
+	if(actualScore === 0){
+		return -500;
+	}
+	let bonus = 0;
+	let upperNow =
+		upperTotal(p);
+	let remainToBonus =
+		Math.max(
+			0,
+			63 - upperNow
+		);
+
+	switch(cat){
+		case 'Yahtzee':
+			if(actualScore === 50){
+				bonus = 100;
+			}
+			break;
+		case 'LargeStraight':
+			bonus = 70;
+			break;
+		case 'SmallStraight':
+			bonus = 50;
+			break;
+		case 'FullHouse':
+			bonus = 40;
+			break;
+		case '4Kind':
+			bonus = 30;
+			break;
+		case '3Kind':
+			bonus = 20;
+			break;
+		case 'Sixes':
+			bonus = 10;
+			break;
+		case 'Fives':
+			bonus = 8;
+			break;
+	}
+/* 上段ボーナス判定 */
+	if(
+		cat === 'Ones' ||
+		cat === 'Twos' ||
+		cat === 'Threes' ||
+		cat === 'Fours' ||
+		cat === 'Fives' ||
+		cat === 'Sixes'
+	){
+		bonus += actualScore;
+		if(actualScore >= remainToBonus){
+			bonus += 50;
+		}
+	}
+	return actualScore + bonus;
+}
+
+function cpuRoll(){
+let area=document.querySelectorAll('.dice');
+
+area.forEach((a,i)=>{
+
+    if(!held[i]){
+
+        a.classList.add('rolling');
+
+    }
+
+});
+	setTimeout(()=>{
+for(let i=0;i<5;i++){
+
+    if(!held[i]){
+
+        dice[i]=1+Math.floor(Math.random()*6);
+
+    }
+
+}
+area.forEach((a,i)=>{
+
+    if(!held[i]){
+
+        a.classList.remove('rolling');
+
+    }
+
+});
+	rolls--;
+	document.getElementById( 'rollBtn' )
+		.textContent =
+		`ROLL (${rolls} LEFT)`;
+	renderDice();
+	renderScore();
+	}
+	,900);
+}
+
+function cpuTurn(){
+	cpuThinking = true;
+    document.getElementById('rollBtn').disabled=true;
+
+	cpuRollStep(1);
+
+}
+
+function cpuRollStep(step){
+	document.getElementById('turn').textContent =
+		'CPU TURN - THINKING - ROLL ' +
+			step;
+	cpuRoll();
+	setTimeout(()=>{
+let mask = findBestHold();
+
+applyHoldMask(mask);
+
+/* 期待値的に十分なら即記録 */
+
+if(mask === 31 || shouldStopRolling()){
+
+    setTimeout(()=>{
+
+        cpuThinking = false;
+
+        cpuPick();
+
+        document
+            .getElementById('rollBtn')
+            .disabled = false;
+
+    },1000);
+
+    return;
+}
+		if(step < 3 && rolls > 0){
+			setTimeout(()=>{
+				cpuRollStep(
+					step+1
+				);
+			},1500);
+		}else{
+			setTimeout(()=>{
+				cpuThinking = false;
+				cpuPick();
+				document
+					.getElementById('rollBtn')
+					.disabled=false;
+			},1000);
+		}
+	},1200);
+}
+
+function shouldStopRolling(){
+
+    if(maxCount() >= 4){
+        return false;
+    }
+
+    if(score('Yahtzee') === 50){
+        return true;
+    }
+
+    if(score('LargeStraight') === 40){
+        return true;
+    }
+
+    if(
+        score('FullHouse') === 25 &&
+        rolls <= 1
+    ){
+        return true;
+    }
+
+    return false;
+}
+
+function maxCount(){
+
+    let cnt=[0,0,0,0,0,0,0];
+
+    dice.forEach(v=>cnt[v]++);
+
+    return Math.max(...cnt);
+
+}
+
+function cpuPick(){
+
+    let bestCat = null;
+
+    let bestValue = -9999;
+
+    cats.forEach(cat=>{
+
+        let value =
+            evaluateCategory(cat);
+
+        if(value > bestValue){
+
+            bestValue = value;
+
+            bestCat = cat;
+
+        }
+
+    });
+
+    saveCat(bestCat);
+
+}
+
+renderDice();
+
+</script>
+
+<div id="gameOver"
+	class="screen">
+	<h1>GAME OVER</h1>
+	<h2 id="winner"></h2>
+	<div id="finalResult"></div>
+	<div id="finalScoreSheet"></div>
+	<br>
+	<button onclick="location.reload()">
+		Play Again
+	</button>
+	<button onclick="backToMenu()">
+		Back To Menu
+	</button>
+
+</div>
+
+</body>
+</html>
